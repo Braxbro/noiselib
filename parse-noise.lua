@@ -1,7 +1,7 @@
 local lib = {}
 
 --[[
-    To preface - the following code avoids using character range shorthand for readability reasons.
+    To preface - the following code generally avoids using character range shorthand (ex. %s for whitespace) for readability.
 ]]
 
 lib.token_type_expressions = {}
@@ -51,8 +51,6 @@ local bad_number = "([0-9]+%.)([^0-9]+)"
 local bad_number_end = "([0-9]+%.)$"
 --[[ 
     Catches and fixes formats that are noise-system compatible but against this library's standard.
-    For performance reasons, this isn't incorporated into this library's other functions.
-    Use it first, then store and use the resulting string instead.
 ]]
 function lib.fix_string(str)
     --[[
