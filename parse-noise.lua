@@ -311,11 +311,11 @@ function lib.parse_noise(str)
         Accepts a pre-processed string of implicit operators.
         Returns an iterator that returns two values: next_op and lookahead_op
     ]]
-    local function next_op(operators)
+    local function next_op(operators, starting_index)
         local refpattern = "[%[%(][0-9]+[%]%)]"
         local unarygroup = "[+-~]?"
         local ows = "%s*" -- Short for 'optional whitespace'
-        local index = 1
+        local index = starting_index or 1
         local function get_next_operator(start, lookahead)
             local found
             for i = 9, 1, -1 do
@@ -363,7 +363,7 @@ function lib.parse_noise(str)
             -- this is technically synonymous with return nil I think?
             return found
         end
-        return function()
+        local function iterator()
             if index then
                 local next_op, lookahead_op, next_start = get_next_operator(index, false)
                 index = next_start
@@ -372,6 +372,16 @@ function lib.parse_noise(str)
                 error("Lost index in next_op iterator before finishing the loop")
             end
         end
+        local tbl = {}
+        -- efficiently get current index location of the iterator
+        function tbl.get_index()
+            return index
+        end
+        -- make the iterator work with default Lua loops
+        local meta = {}
+        meta.__call = iterator
+        setmetatable(tbl, meta)
+        return tbl
     end
 
     local function parse_precedence(operators)
