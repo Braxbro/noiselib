@@ -1,0 +1,9 @@
+{
+	"name": "noiselib",
+	"version": "0.0.1",
+	"title": "Brax's Noise Library",
+	"author": "Braxbro",
+	"factorio_version": "2.0",
+	"description": "A library for converting 2.0 noise expressions to a more 1.x-esque table format for heavy procedural manipulation.",
+	"dependencies": []
+}
