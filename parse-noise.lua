@@ -250,6 +250,9 @@ function lib.parse_noise(str)
         table.insert(subexpressions, string.sub(value, 2, #value - 1))
         return "(" .. #subexpressions .. ")"
     end)
+    
+    -- modstr should look something like this now: [1] + (1) * [6] / [7] * (2) - [11] + [12]
+    -- [x] is a reference to a value in the values table, while (x) is a reference to a value in the subexpressions table.
 
     --[[
         Now that top-level values are separated out (recursion will still be needed for function args
