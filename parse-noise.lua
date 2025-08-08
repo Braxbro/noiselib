@@ -250,7 +250,7 @@ function lib.parse_noise(str)
         table.insert(subexpressions, string.sub(value, 2, #value - 1))
         return "(" .. #subexpressions .. ")"
     end)
-    
+
     -- modstr should look something like this now: [1] + (1) * [6] / [7] * (2) - [11] + [12]
     -- [x] is a reference to a value in the values table, while (x) is a reference to a value in the subexpressions table.
 
@@ -266,8 +266,9 @@ function lib.parse_noise(str)
         As a result, for a given precedence level, each symbol is unique, but the operator may not be.
         This is because Factorio supports both C++ and Lua syntax for not equals in noise expressions.
     ]]
-    operator_list[9] = {} 
-    operator_list[9]["^"] = {operator = "exponentiation", binary = true}
+    operator_list[9] = {}
+    -- Exponentiation is right-associative.
+    operator_list[9]["^"] = {operator = "exponentiation", binary = true, right = true}
 
     operator_list[8] = {}
     operator_list[8]["+"] = {operator = "unary_plus", unary = true}
@@ -310,85 +311,105 @@ function lib.parse_noise(str)
         return escaped_pattern
     end
 
-    --[[
-        Accepts a pre-processed string of implicit operators.
-        Returns an iterator that returns two values: next_op and lookahead_op
-    ]]
-    local function next_op(operators, starting_index)
-        local refpattern = "[%[%(][0-9]+[%]%)]"
-        local unarygroup = "[+-~]?"
-        local ows = "%s*" -- Short for 'optional whitespace'
-        local index = starting_index or 1
-        local function get_next_operator(start, lookahead)
-            local found
-            for i = 9, 1, -1 do
-                for symbol, opdata in pairs(operator_list[i]) do
-                    if opdata.binary then
-                        local pattern = "^".. ows .. "(" .. refpattern .. ows .. escape_magic_characters(symbol)
-                                        .. ows .. unarygroup .. ows .. refpattern .. ")"
-                        -- attempt to find operator at the start of the search window
-                        local raw = string.match(operators, pattern, start)
-                        if raw then
-                            found = {raw = raw, symbol = symbol, precedence = i, operator = opdata.operator}
-                        end
-                    elseif opdata.unary then
-                        local pattern = "^" .. ows .. "(" .. escape_magic_characters(symbol) .. ows .. refpattern .. ")"
-                        local raw = string.match(operators, pattern, start)
-                        if raw then
-                            found = {raw = raw, symbol = symbol, precedence = i, operator = opdata.operator}
-                        end
-                    else
-                        --[[
-                            If this debug error shows up, something went horribly wrong
-                            operator_list is local and relatively protected from tampering by other mods.
-                            Its definition also should never trigger this error.
-                            However, I would rather it error out if something does happen.
-                        ]]
-                        error("Unrecognized operator definition for operator " .. opdata.operator .. 
-                        ".\nExpected either operator_list[" .. i .. "][".. symbol .."].binary or \z
-                        operator_list[" .. i .. "][".. symbol .."].unary to be true, but neither were.")
+    -- A function that fetches the next operator and lookahead for a given operator string and string position.
+    local refpattern = "[%[%(][0-9]+[%]%)]"
+    local unarygroup = "[+-~]?"
+    local ows = "%s*" -- Short for 'optional whitespace'
+    local function get_next_operator(operators, start, lookahead)
+        local found
+        for i = 9, 1, -1 do
+            for symbol, opdata in pairs(operator_list[i]) do
+                if opdata.binary then
+                    local pattern = "^".. ows .. "(" .. refpattern .. ows .. escape_magic_characters(symbol)
+                                    .. ows .. unarygroup .. ows .. refpattern .. ")"
+                    -- attempt to find operator at the start of the search window
+                    local raw = string.match(operators, pattern, start)
+                    if raw then
+                        found = {raw = raw, symbol = symbol, precedence = i, operator = opdata.operator}
                     end
-                    if found then
-                        break
+                elseif opdata.unary then
+                    local pattern = "^" .. ows .. "(" .. escape_magic_characters(symbol) .. ows .. refpattern .. ")"
+                    local raw = string.match(operators, pattern, start)
+                    if raw then
+                        found = {raw = raw, symbol = symbol, precedence = i, operator = opdata.operator}
                     end
+                else
+                    --[[
+                        If this debug error shows up, something went horribly wrong
+                        operator_list is local and relatively protected from tampering by other mods.
+                        Its definition also should never trigger this error.
+                        However, I would rather it error out if something does happen.
+                    ]]
+                    error("Unrecognized operator definition for operator " .. opdata.operator .. 
+                    ".\nExpected either operator_list[" .. i .. "][".. symbol .."].binary or \z
+                    operator_list[" .. i .. "][".. symbol .."].unary to be true, but neither were.")
                 end
                 if found then
                     break
                 end
             end
-            if (not lookahead) and found then
-                local _, next_start = string.find(operators, found.symbol, start, true)
-                if next_start then
-                    next_start = next_start + 1 -- increment so it doesn't pick up the last character of the operator later
-                    return found, get_next_operator(next_start, true), next_start
-                end
+            if found then
+                break
             end
-            -- this is technically synonymous with return nil I think?
-            return found
         end
-        local function iterator()
+        if (not lookahead) and found then
+            local _, next_start = string.find(operators, found.symbol, start, true)
+            if next_start then
+                next_start = next_start + 1 -- increment so it doesn't pick up the last character of the operator later
+                return found, get_next_operator(operators, next_start, true), next_start
+            end
+        end
+        -- this is technically synonymous with return nil I think?
+        return found
+    end
+    -- Creates an iterator from the get_next_operator function.
+    local function next_op(operators, starting_index)
+        local index = starting_index or 1
+        return function()
             if index then
-                local next_op, lookahead_op, next_start = get_next_operator(index, false)
+                local next, lookahead, next_start = get_next_operator(operators, index, false)
+                local pos = index
                 index = next_start
-                return next_op, lookahead_op
+                return pos, next, lookahead
             else
                 error("Lost index in next_op iterator before finishing the loop")
             end
         end
-        local tbl = {}
-        -- efficiently get current index location of the iterator
-        function tbl.get_index()
-            return index
-        end
-        -- make the iterator work with default Lua loops
-        local meta = {}
-        meta.__call = iterator
-        setmetatable(tbl, meta)
-        return tbl
     end
 
-    local function parse_precedence(operators)
-        
+    -- Used to back up when snapshotting implicit operators.
+    local lookback_indices = {}
+    table.insert(lookback_indices, 1) -- add first index to table
+    while (#lookback_indices > 0) do
+        -- fetch operator and lookahead; next_index is added to lookback_indices when operator is not safe to capture.
+        local operator, lookahead, next_index = get_next_operator(modstr, lookback_indices[#lookback_indices])
+        if
+            -- Only check precedence if a lookahead operator exists.
+            lookahead and
+            (
+            -- Left-associativity case. Lookahead has higher precedence than operator.
+                (
+                    (lookahead.precedence) > (operator and operator.precedence)
+                ) or
+            -- Right-associativity case. Lookahead has equal precedence to operator, and lookahead is right-associative.
+                (
+                    (lookahead.precedence) == (operator and operator.precedence) and
+                    (operator_list[lookahead.precedence][lookahead.symbol].right)
+                )
+            )
+        then
+            -- Advance to the next operator.
+            table.insert(lookback_indices, next_index)
+        else
+            -- The current operator is the local maximum precedence-wise.
+            if operator then
+                table.insert(subexpressions, operator.raw)
+                local start, last = string.find(modstr, operator.raw, lookback_indices[#lookback_indices], true)
+                modstr = string.sub(modstr, 1, start - 1) .. "(" .. #subexpressions .. ")" .. string.sub(modstr, last + 1)
+            end
+            -- Backtrack to the previous operator.
+            table.remove(lookback_indices)
+        end
     end
 end
 
