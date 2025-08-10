@@ -186,7 +186,7 @@ function lib.parse_noise(str)
     --[[
         To start, remove all the values so that all that's left are
         standardized references and operators, so that functions don't
-        mess with the detection of operators grouped by parentheses and 
+        mess with the detection of operators grouped by parentheses and
         strings don't mess with the detection of operators included in the string.
     ]]
     local values = {}
@@ -195,36 +195,39 @@ function lib.parse_noise(str)
     local remstr = lib.trim_string(str)
     -- String with only references and operators
     local modstr = ""
+    print(remstr)
 
-    while(string.len(remstr) > 0) do
+    local _, nstartchars = string.gsub(remstr, "(['\"0-9a-zA-Z_])", "%1")
+
+    while (nstartchars > 0) do
         local prefixes, suffixes, noise_values = {}, {}, {}
         local next_value_type, min_loc = "", math.huge
-        --[[ 
+        --[[
             I need a for loop to find the first value if I don't want to write a giant pile of hardcoded
             spaghetti, so might as well also use it to do the value parsing.
         ]]
         for index, pattern in pairs(tte) do
             if index ~= "whitespace" then
-                _, _, prefixes[index], noise_values[index], suffixes[index] = 
+                _, _, prefixes[index], noise_values[index], suffixes[index] =
                     string.find(remstr, "^(.-)" .. pattern .. "(.*)$")
                 if prefixes[index] then -- check that string.find found something
                     local prefix_length = string.len(prefixes[index])
-                    -- Figure out the next value while collecting them. 
+                    -- Figure out the next value while collecting them.
                     if prefix_length < min_loc or
                         ((next_value_type == "identifier" and prefix_length == min_loc) and
                             (index == "func_named" or index == "func_positional")
                         )
-                        then
+                    then
                         next_value_type, min_loc = index, prefix_length
                     end
-                    
+
                     -- Check for number of characters that could start a recognized value type
-                    local _, nstartchars = string.gsub(prefixes[index], "(['\"0-9a-zA-Z_])", "%1")
+                    local _, possiblestartchars = string.gsub(prefixes[index], "(['\"0-9a-zA-Z_])", "%1")
                     --[[
                         Only identifiers can false-positive at the same position as the first possible value.
                         This is because functions begin with an identifier - every other value type
                         begins with a different character that isn't allowed at the start of an identifier.
-                        In other cases, it's safe to not check other value types. 
+                        In other cases, it's safe to not check other value types.
                     ]]
                     if index ~= "identifier" and nstartchars == 0 then
                         break
@@ -232,10 +235,17 @@ function lib.parse_noise(str)
                 end
             end
         end
-        modstr = modstr .. prefixes[next_value_type] .. "[" .. #values+1 .. "]"
+        modstr = modstr .. prefixes[next_value_type] .. "[" .. #values + 1 .. "]"
         remstr = suffixes[next_value_type]
+        _, nstartchars = string.gsub(remstr, "(['\"0-9a-zA-Z_])", "%1")
+        if nstartchars == 0 then
+            modstr = modstr .. remstr
+        end
         table.insert(values, noise_values[next_value_type])
+        print("Found " ..
+        next_value_type .. " with value " .. noise_values[next_value_type] .. ", assigned reference [" .. #values .. "]")
     end
+    print(modstr)
 
     --[[
         Now that all the values have been separated out, remove all explicit operators so that
@@ -247,9 +257,11 @@ function lib.parse_noise(str)
     modstr = ""
     -- use a custom replacement function to retrieve the operators and properly replace them with references
     modstr = string.gsub(remstr, "%b()", function(value)
-        table.insert(subexpressions, string.sub(value, 2, #value - 1))
+        table.insert(subexpressions, value)
+        print(#subexpressions .. ": " .. value)
         return "(" .. #subexpressions .. ")"
     end)
+    print(modstr)
 
     -- modstr should look something like this now: [1] + (1) * [6] / [7] * (2) - [11] + [12]
     -- [x] is a reference to a value in the values table, while (x) is a reference to a value in the subexpressions table.
@@ -258,7 +270,7 @@ function lib.parse_noise(str)
         Now that top-level values are separated out (recursion will still be needed for function args
         and explicit operators) operator precedence can be safely processed.
     ]]
-    
+
     local operator_list = {} -- establish precedence-indexed list of operator lists
 
     --[[
@@ -268,43 +280,43 @@ function lib.parse_noise(str)
     ]]
     operator_list[9] = {}
     -- Exponentiation is right-associative.
-    operator_list[9]["^"] = {operator = "exponentiation", binary = true, right = true}
+    operator_list[9]["^"] = { operator = "exponentiation", binary = true, right = true }
 
     operator_list[8] = {}
-    operator_list[8]["+"] = {operator = "unary_plus", unary = true}
-    operator_list[8]["-"] = {operator = "unary_minus", unary = true}
-    operator_list[8]["~"] = {operator = "unary_not", unary = true}
+    operator_list[8]["+"] = { operator = "unary_plus", unary = true }
+    operator_list[8]["-"] = { operator = "unary_minus", unary = true }
+    operator_list[8]["~"] = { operator = "unary_not", unary = true }
 
     operator_list[7] = {}
-    operator_list[7]["*"] = {operator = "multiplication", binary = true}
-    operator_list[7]["/"] = {operator = "division", binary = true}
-    operator_list[7]["%"] = {operator = "modulo", binary = true}
-    operator_list[7]["%%"] = {operator = "remainder", binary = true}
+    operator_list[7]["*"] = { operator = "multiplication", binary = true }
+    operator_list[7]["/"] = { operator = "division", binary = true }
+    operator_list[7]["%"] = { operator = "modulo", binary = true }
+    operator_list[7]["%%"] = { operator = "remainder", binary = true }
 
     operator_list[6] = {}
-    operator_list[6]["+"] = {operator = "addition", binary = true}
-    operator_list[6]["-"] = {operator = "subtraction", binary = true}
+    operator_list[6]["+"] = { operator = "addition", binary = true }
+    operator_list[6]["-"] = { operator = "subtraction", binary = true }
 
     operator_list[5] = {}
-    operator_list[5]["<"] = {operator = "less_than", binary = true}
-    operator_list[5]["<="] = {operator = "less_or_equal", binary = true}
-    operator_list[5][">"] = {operator = "greater_than", binary = true}
-    operator_list[5][">="] = {operator = "greater_or_equal", binary = true}
+    operator_list[5]["<"] = { operator = "less_than", binary = true }
+    operator_list[5]["<="] = { operator = "less_or_equal", binary = true }
+    operator_list[5][">"] = { operator = "greater_than", binary = true }
+    operator_list[5][">="] = { operator = "greater_or_equal", binary = true }
 
     operator_list[4] = {}
-    operator_list[4]["=="] = {operator = "equal", binary = true}
-    operator_list[4]["~="] = {operator = "not_equal", binary = true} -- lua syntax
-    operator_list[4]["!="] = {operator = "not_equal", binary = true} -- c++ syntax
+    operator_list[4]["=="] = { operator = "equal", binary = true }
+    operator_list[4]["~="] = { operator = "not_equal", binary = true } -- lua syntax
+    operator_list[4]["!="] = { operator = "not_equal", binary = true } -- c++ syntax
 
     operator_list[3] = {}
-    operator_list[3]["&"] = {operator = "bitwise_and", binary = true}
+    operator_list[3]["&"] = { operator = "bitwise_and", binary = true }
 
     operator_list[2] = {}
-    operator_list[2]["~"] = {operator = "bitwise_xor", binary = true}
+    operator_list[2]["~"] = { operator = "bitwise_xor", binary = true }
 
     operator_list[1] = {}
-    operator_list[1]["|"] = {operator = "bitwise_or", binary = true}
-    
+    operator_list[1]["|"] = { operator = "bitwise_or", binary = true }
+
     -- This is unnecessary - operator_list could just contain escaped operators, but that'd be less readable.
     local function escape_magic_characters(pattern)
         local escaped_pattern, _ = string.gsub(pattern, "([().%+-*?[^$])", "%%%1")
@@ -320,18 +332,18 @@ function lib.parse_noise(str)
         for i = 9, 1, -1 do
             for symbol, opdata in pairs(operator_list[i]) do
                 if opdata.binary then
-                    local pattern = "^".. ows .. "(" .. refpattern .. ows .. escape_magic_characters(symbol)
-                                    .. ows .. unarygroup .. ows .. refpattern .. ")"
+                    local pattern = "^" .. ows .. "(" .. refpattern .. ows .. escape_magic_characters(symbol)
+                        .. ows .. unarygroup .. ows .. refpattern .. ")"
                     -- attempt to find operator at the start of the search window
                     local raw = string.match(operators, pattern, start)
                     if raw then
-                        found = {raw = raw, symbol = symbol, precedence = i, operator = opdata.operator}
+                        found = { raw = raw, symbol = symbol, precedence = i, operator = opdata.operator }
                     end
                 elseif opdata.unary then
                     local pattern = "^" .. ows .. "(" .. escape_magic_characters(symbol) .. ows .. refpattern .. ")"
                     local raw = string.match(operators, pattern, start)
                     if raw then
-                        found = {raw = raw, symbol = symbol, precedence = i, operator = opdata.operator}
+                        found = { raw = raw, symbol = symbol, precedence = i, operator = opdata.operator }
                     end
                 else
                     --[[
@@ -340,9 +352,9 @@ function lib.parse_noise(str)
                         Its definition also should never trigger this error.
                         However, I would rather it error out if something does happen.
                     ]]
-                    error("Unrecognized operator definition for operator " .. opdata.operator .. 
-                    ".\nExpected either operator_list[" .. i .. "][".. symbol .."].binary or \z
-                    operator_list[" .. i .. "][".. symbol .."].unary to be true, but neither were.")
+                    error("Unrecognized operator definition for operator " .. opdata.operator ..
+                        ".\nExpected either operator_list[" .. i .. "][" .. symbol .. "].binary or \z
+                    operator_list[" .. i .. "][" .. symbol .. "].unary to be true, but neither were.")
                 end
                 if found then
                     break
@@ -377,40 +389,70 @@ function lib.parse_noise(str)
         end
     end
 
-    -- Used to back up when snapshotting implicit operators.
-    local lookback_indices = {}
-    table.insert(lookback_indices, 1) -- add first index to table
-    while (#lookback_indices > 0) do
-        -- fetch operator and lookahead; next_index is added to lookback_indices when operator is not safe to capture.
-        local operator, lookahead, next_index = get_next_operator(modstr, lookback_indices[#lookback_indices])
-        if
-            -- Only check precedence if a lookahead operator exists.
-            lookahead and
-            (
-            -- Left-associativity case. Lookahead has higher precedence than operator.
+    local function parse_precedence(operator_string, subexp_table)
+        -- Used to back up when snapshotting implicit operators.
+        local lookback_indices = {}
+        table.insert(lookback_indices, 1) -- add first index to table
+        while (#lookback_indices > 0) do
+            -- fetch operator and lookahead; next_index is added to lookback_indices when operator is not safe to capture.
+            local operator, lookahead, next_index = get_next_operator(operator_string,
+                lookback_indices[#lookback_indices])
+            if
+                -- Only check precedence if a lookahead operator exists.
+                lookahead and
                 (
-                    (lookahead.precedence) > (operator and operator.precedence)
-                ) or
-            -- Right-associativity case. Lookahead has equal precedence to operator, and lookahead is right-associative.
-                (
-                    (lookahead.precedence) == (operator and operator.precedence) and
-                    (operator_list[lookahead.precedence][lookahead.symbol].right)
+                    -- Left-associativity case. Lookahead has higher precedence than operator.
+                    (
+                        (lookahead.precedence) > (operator and operator.precedence)
+                    ) or
+                    -- Right-associativity case. Lookahead has equal precedence to operator and is right-associative.
+                    (
+                        (lookahead.precedence) == (operator and operator.precedence) and
+                        (operator_list[lookahead.precedence][lookahead.symbol].right)
+                    )
                 )
-            )
-        then
-            -- Advance to the next operator.
-            table.insert(lookback_indices, next_index)
-        else
-            -- The current operator is the local maximum precedence-wise.
-            if operator then
-                table.insert(subexpressions, operator.raw)
-                local start, last = string.find(modstr, operator.raw, lookback_indices[#lookback_indices], true)
-                modstr = string.sub(modstr, 1, start - 1) .. "(" .. #subexpressions .. ")" .. string.sub(modstr, last + 1)
+            then
+                -- Advance to the next operator.
+                table.insert(lookback_indices, next_index)
+            else
+                if operator then
+                    -- The current operator is the local maximum precedence-wise.
+                    table.insert(subexp_table, operator.raw)
+                    local start, last = string.find(operator_string, operator.raw, lookback_indices[#lookback_indices],
+                        true)
+                    operator_string = string.sub(operator_string, 1, start - 1) ..
+                        "(" .. #subexp_table .. ")" .. string.sub(operator_string, last + 1)
+                    print(#subexp_table .. ": " .. operator.raw)
+                end
+                -- Backtrack to the previous operator.
+                table.remove(lookback_indices)
+                if #lookback_indices == 0 then
+                    local _, nreferences = string.gsub(operator_string, "(" .. refpattern .. ")", "%1")
+                    if nreferences > 1 then
+                        -- A fully parsed string should have only one reference. If there are more, there's still work to do.
+                        table.insert(lookback_indices, 1)
+                    end
+                end
             end
-            -- Backtrack to the previous operator.
-            table.remove(lookback_indices)
         end
+        return operator_string, subexp_table
     end
+    modstr, subexpressions = parse_precedence(modstr, subexpressions)
+
+    -- Parse the explicit expressions
+    for i, expression in pairs(subexpressions) do
+        if string.match(expression, "^%b()$") then
+            local parsed_subexp
+            parsed_subexp, subexpressions = parse_precedence(string.sub(expression, 2, #expression - 1), subexpressions)
+            -- parse_precedence parses down to a single reference, but the string already comes from a reference.
+            -- As a result, the single reference is unpacked back into the source expression to minimize reference clutter.
+            local first_index = string.match(parsed_subexp, "%(([0-9]+)%)")
+            subexpressions[i] = "(" .. table.remove(subexpressions, first_index) .. ")"
+        end
+        print("(" .. i .. "): " .. subexpressions[i])
+    end
+
+    
 end
 
 return lib
